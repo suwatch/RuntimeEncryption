@@ -59,7 +59,8 @@ namespace RuntimeEncryption
         // https://stackoverflow.com/q/8041451/3234163
         private static string Encrypt(string key, string data)
         {
-            using (var aes = new AesManaged { Key = Convert.FromBase64String(key) })
+            var encryptionKey = Convert.FromBase64String(key);
+            using (var aes = new AesManaged { Key = encryptionKey })
             {
                 aes.GenerateIV();
                 var input = Encoding.UTF8.GetBytes(data);
@@ -75,22 +76,38 @@ namespace RuntimeEncryption
                         tCryptoStream.FlushFinalBlock();
                     }
 
-                    return string.Format("{0}.{1}", iv, Convert.ToBase64String(cipherStream.ToArray()));
+                    return string.Format("{0}.{1}.{2}", iv, Convert.ToBase64String(cipherStream.ToArray()), GetSHA256Base64String(aes.Key));
                 }
+            }
+        }
+
+        private static string GetSHA256Base64String(byte[] key)
+        {
+            using (var sha256 = new SHA256Managed())
+            {
+                return Convert.ToBase64String(sha256.ComputeHash(key));
             }
         }
 
         private static string Decrypt(string key, string data)
         {
             var parts = data.Split(new[] { '.' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length != 2)
+            if (parts.Length != 3)
             {
                 throw new ArgumentException("Malform encrypted data.");
             }
 
             var iv = Convert.FromBase64String(parts[0]);
             var dataArray = Convert.FromBase64String(parts[1]);
-            using (var aes = new AesManaged { Key = Convert.FromBase64String(key) })
+            var keyHash = parts[2];
+
+            var encryptionKey = Convert.FromBase64String(key);
+            if (GetSHA256Base64String(encryptionKey) != keyHash)
+            {
+                throw new InvalidOperationException("Mismatch key hash!");
+            }
+
+            using (var aes = new AesManaged { Key = encryptionKey })
             {
                 using (var ms = new MemoryStream())
                 {
